@@ -1,6 +1,9 @@
 # TODO
 
 -temperature sensor
--magnet high low detectors to stop motor
 -multiple motors
+
+## done
+
+-magnet high low detectors to stop motor
 -interupt for wind sensor

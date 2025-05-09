@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include "stepper_control.h"
+#include "stop_button.h"
+
 
 StepperControl::StepperControl(int pin1, int pin2, int pin3, int pin4) {
   motorPins[0] = pin1;
@@ -14,8 +16,29 @@ StepperControl::StepperControl(int pin1, int pin2, int pin3, int pin4) {
 
 void StepperControl::oneRotation(bool forward) {
   for(int i = 0; i < stepsPerRevolution; i++) {
-    stepMotor(i % 8, forward);
-    delay(stepDelay);
+    // check if stop buttons are pressed
+    // maybe need to write !Stop (not stop) might be wrong
+
+    if (Stop::isStopped_forward()){
+      if(forward){
+        release();
+        return;
+      }
+    }
+
+    if (Stop::isStopped_backward()){
+      if(!forward){
+        release();
+        return;
+      }
+    }
+    unsigned long currentMicros = micros();
+    //end check stop buttons
+    if (micros() - previousStepTime >= stepDelay * 1000) {
+      stepMotor(i % 8, forward);
+      delayMicroseconds(stepDelay * 1000 - (currentMicros - previousStepTime));
+      previousStepTime = micros(); // Reset timer
+    }
   }
   release(); // cut power when idle (no holding force needed)
 }
