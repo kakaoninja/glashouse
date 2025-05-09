@@ -16,6 +16,7 @@
 #define FROST_INCREMENT_VALUE 1
 #define WIND_INCREMENT_VALUE 10
 
+
 StepperControl* stepper = new StepperControl();
 
 //initialize stepper

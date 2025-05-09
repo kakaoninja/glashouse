@@ -32,9 +32,29 @@ void initializeDisplay() {
   lcd.backlight(); // Turn on backlight
 
   // Create custom character for inverted display (block character)
-  byte invertedChar[8] = {B11111, B11111, B11111, B11111, B11111, B11111, B11111, B11111};
-  lcd.createChar(0, invertedChar);
-
+  byte leftBracket[8] = {
+    B01111,
+    B01100,
+    B01100,
+    B01100,
+    B01100,
+    B01100,
+    B01111,
+    B00000
+  };
+  byte rightBracket[8] = {
+    B11110,
+    B00110,
+    B00110,
+    B00110,
+    B00110,
+    B00110,
+    B11110,
+    B00000
+  };
+  
+  lcd.createChar(1, leftBracket);   // Custom char 1 = [
+  lcd.createChar(2, rightBracket);  // Custom char 2 = ]
   updateDisplay();
 }
 
@@ -66,63 +86,121 @@ void scanI2CDevices() {
 
 void printWithHighlight(int value, int col, int row, bool highlight) {
   lcd.setCursor(col, row);
+  
   if (highlight) {
+    // Print left border at column 14
+    lcd.setCursor(14, row);
+    lcd.write(byte(1)); // Custom [
+    
+    // Print value at column 15-16
+    lcd.setCursor(15, row);
     if (value < 10) {
-      lcd.write(byte(0)); // Inverted block for first digit
-      lcd.setCursor(col + 1, row);
-      lcd.print(value);
-    } else {
-      lcd.print(value); // Will print normally (we'll need two custom chars for full inversion)
+      lcd.print("0"); // Leading zero for single digit
     }
+    lcd.print(value);
+    
+    // Print right border at column 17
+    lcd.setCursor(17, row);
+    lcd.write(byte(2)); // Custom ]
   } else {
+    // Normal printing (no borders)
+    lcd.setCursor(15, row); // Center the non-highlighted value
     if (value < 10) lcd.print("0");
     lcd.print(value);
   }
 }
+
 void updateDisplay() {
-  // Clear display first
   lcd.clear();
   
-  // Update temperature line (row 0)
+  // Temperature line
   lcd.setCursor(0, 0);
   lcd.print("Temp  ");
   if (tempCurrent < 10) lcd.print(" ");
   lcd.print(tempCurrent);
   lcd.write(223);
-  lcd.print("C  ->");
+  lcd.print("C  -> ");
   printWithHighlight(tempTarget, 15, 0, currentLine == 0);
   lcd.write(223);
   lcd.print("C");
   
-  // Update open line (row 1)
+  // Open line
   lcd.setCursor(0, 1);
   lcd.print("Offen ");
   if (openPercent < 10) lcd.print("0");
   lcd.print(openPercent);
-  lcd.print("%   ->");
+  lcd.print("%   -> ");
   printWithHighlight(openTarget, 15, 1, currentLine == 1);
-  lcd.print("%  ");
+  lcd.print("%");
   
-  // Update frost line (row 2)
+  // Frost line
   lcd.setCursor(0, 2);
   lcd.print("Frost ");
   if (frostCurrent < 10) lcd.print("0");
   lcd.print(frostCurrent);
   lcd.write(223);
-  lcd.print("C  ->");
+  lcd.print("C  -> ");
   printWithHighlight(frostTarget, 15, 2, currentLine == 2);
   lcd.write(223);
   lcd.print("C");
   
-  // Update wind line (row 3)
+  // Wind line
   lcd.setCursor(0, 3);
   lcd.print("Wind  ");
   if (windCurrent < 10) lcd.print("0");
   lcd.print(windCurrent);
-  lcd.print("kmH ->");
+  lcd.print("kmH -> ");
   printWithHighlight(windTarget, 15, 3, currentLine == 3);
   lcd.print("kmH");
 }
+
+
+
+
+// void updateDisplay() {
+//   // Clear display first
+//   lcd.clear();
+  
+//   // Update temperature line (row 0)
+//   lcd.setCursor(0, 0);
+//   lcd.print("Temp  ");
+//   if (tempCurrent < 10) lcd.print(" ");
+//   lcd.print(tempCurrent);
+//   lcd.write(223);
+//   lcd.print("C  ->");
+//   printWithHighlight(tempTarget, 15, 0, currentLine == 0);
+//   lcd.write(223);
+//   lcd.print("C");
+  
+//   // Update open line (row 1)
+//   lcd.setCursor(0, 1);
+//   lcd.print("Offen ");
+//   if (openPercent < 10) lcd.print("0");
+//   lcd.print(openPercent);
+//   lcd.print("%   ->");
+//   printWithHighlight(openTarget, 15, 1, currentLine == 1);
+//   lcd.print("%  ");
+  
+//   // Update frost line (row 2)
+//   lcd.setCursor(0, 2);
+//   lcd.print("Frost ");
+//   if (frostCurrent < 10) lcd.print("0");
+//   lcd.print(frostCurrent);
+//   lcd.write(223);
+//   lcd.print("C  ->");
+//   printWithHighlight(frostTarget, 15, 2, currentLine == 2);
+//   lcd.write(223);
+//   lcd.print("C");
+  
+//   // Update wind line (row 3)
+//   lcd.setCursor(0, 3);
+//   lcd.print("Wind  ");
+//   if (windCurrent < 10) lcd.print("0");
+//   lcd.print(windCurrent);
+//   lcd.print("kmH ->");
+//   printWithHighlight(windTarget, 15, 3, currentLine == 3);
+//   lcd.print("kmH");
+// }
 
 void handleButtons(int cyclePin, int increasePin, int decreasePin,
                    int increment_1, int increment_2,
