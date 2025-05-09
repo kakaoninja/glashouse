@@ -1,3 +1,4 @@
+#include <Arduino.h>
 // const int interruptPin = 2;  // Interrupt-Pin (z. B. D2)
 // volatile unsigned long rotationCount = 0;  // Zählt Windrad-Umdrehungen
 

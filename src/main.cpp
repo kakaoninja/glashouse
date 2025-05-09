@@ -1,14 +1,20 @@
 // libraries:
+#include <Arduino.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
 // own scripts:
 #include "stepper_control.h"
+#include "display_control.h"
 
 #define CYCLE_PIN 52
 #define INCREASE_PIN 50
 #define DECREASE_PIN 48
-#define INCREMENT_VALUE 10
+
+#define TEMPERATURE_INCREMENT_VALUE 1
+#define OPEN_INCREMENT_VALUE 5
+#define FROST_INCREMENT_VALUE 1
+#define WIND_INCREMENT_VALUE 10
 
 StepperControl* stepper = new StepperControl();
 
@@ -25,10 +31,9 @@ void setup() {
   }
 
 void loop() {
-  handleButtons(CYCLE_PIN, INCREASE_PIN, DECREASE_PIN, INCREMENT_VALUE);
+  handleButtons(CYCLE_PIN, INCREASE_PIN, DECREASE_PIN,
+                TEMPERATURE_INCREMENT_VALUE, OPEN_INCREMENT_VALUE,
+                FROST_INCREMENT_VALUE, WIND_INCREMENT_VALUE);
   
-  if(stepper) {
-    stepper->oneRotation();
-    delay(1000);
-  }
+  //stepper->oneRotation();
 }

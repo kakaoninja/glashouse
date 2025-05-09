@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "display_control.h"
 
 // LCD object
@@ -15,6 +16,9 @@ int windTarget = 0;
 
 int currentLine = 0; // 0: Temp, 1: Open, 2: Frost, 3: Wind
 
+bool cyclePressed = false;
+bool incPressed = false;
+bool decPressed = false;
 
 void initializeDisplay() {
   // Initialize I2C communication
@@ -81,12 +85,12 @@ void updateDisplay() {
   
   // Update temperature line (row 0)
   lcd.setCursor(0, 0);
-  lcd.print("Temp ");
+  lcd.print("Temp  ");
   if (tempCurrent < 10) lcd.print(" ");
   lcd.print(tempCurrent);
   lcd.write(223);
-  lcd.print("C  -> ");
-  printWithHighlight(tempTarget, 13, 0, currentLine == 0);
+  lcd.print("C  ->");
+  printWithHighlight(tempTarget, 15, 0, currentLine == 0);
   lcd.write(223);
   lcd.print("C");
   
@@ -95,7 +99,7 @@ void updateDisplay() {
   lcd.print("Offen ");
   if (openPercent < 10) lcd.print("0");
   lcd.print(openPercent);
-  lcd.print("%   -> ");
+  lcd.print("%   ->");
   printWithHighlight(openTarget, 15, 1, currentLine == 1);
   lcd.print("%  ");
   
@@ -105,8 +109,8 @@ void updateDisplay() {
   if (frostCurrent < 10) lcd.print("0");
   lcd.print(frostCurrent);
   lcd.write(223);
-  lcd.print("C  -> ");
-  printWithHighlight(frostTarget, 14, 2, currentLine == 2);
+  lcd.print("C  ->");
+  printWithHighlight(frostTarget, 15, 2, currentLine == 2);
   lcd.write(223);
   lcd.print("C");
   
@@ -115,41 +119,60 @@ void updateDisplay() {
   lcd.print("Wind  ");
   if (windCurrent < 10) lcd.print("0");
   lcd.print(windCurrent);
-  lcd.print("kmH -> ");
+  lcd.print("kmH ->");
   printWithHighlight(windTarget, 15, 3, currentLine == 3);
   lcd.print("kmH");
 }
 
-void handleButtons(int cyclePin, int increasePin, int decreasePin, int increment) {
-  static unsigned long lastDebounceTime = 0;
-  static int debounceDelay = 50;
+void handleButtons(int cyclePin, int increasePin, int decreasePin,
+                   int increment_1, int increment_2,
+                   int increment_3, int increment_4) {
+  static unsigned long lastCycleTime = 0;
+  static unsigned long lastIncreaseTime = 0;
+  static unsigned long lastDecreaseTime = 0;
+  static const unsigned long debounceDelay = 20;
   
-  if (digitalRead(cyclePin) == HIGH && millis() - lastDebounceTime > debounceDelay) {
-    lastDebounceTime = millis();
-    currentLine = (currentLine + 1) % 4;
-    updateDisplay();
-  }
-  
-  if (digitalRead(increasePin) == HIGH && millis() - lastDebounceTime > debounceDelay) {
-    lastDebounceTime = millis();
-    switch(currentLine) {
-      case 0: tempTarget += increment; break;
-      case 1: openTarget += increment; break;
-      case 2: frostTarget += increment; break;
-      case 3: windTarget += increment; break;
+  if (digitalRead(cyclePin) == HIGH) {
+    if (!cyclePressed && millis() - lastCycleTime > debounceDelay) {
+      cyclePressed = true;
+      lastCycleTime = millis();
+      currentLine = (currentLine + 1) % 4;
+      updateDisplay();
     }
-    updateDisplay();
+  } else {
+    cyclePressed = false;
   }
-  
-  if (digitalRead(decreasePin) == HIGH && millis() - lastDebounceTime > debounceDelay) {
-    lastDebounceTime = millis();
-    switch(currentLine) {
-      case 0: tempTarget = max(0, tempTarget - increment); break;
-      case 1: openTarget = max(0, openTarget - increment); break;
-      case 2: frostTarget = max(0, frostTarget - increment); break;
-      case 3: windTarget = max(0, windTarget - increment); break;
+
+  if (digitalRead(increasePin) == HIGH) {
+    if (!incPressed && millis() - lastIncreaseTime > debounceDelay) {
+      incPressed = true;
+      lastIncreaseTime = millis();
+      switch(currentLine) {
+        case 0: tempTarget += increment_1; break;
+        case 1: openTarget += increment_2; break;
+        case 2: frostTarget += increment_3; break;
+        case 3: windTarget += increment_4; break;
+      }
+      updateDisplay();
     }
-    updateDisplay();
+  } else {
+    incPressed = false;
+  }
+
+  if (digitalRead(decreasePin) == HIGH) {
+    if (!decPressed && millis() - lastDecreaseTime > debounceDelay) {
+      decPressed = true;
+      lastDecreaseTime = millis();
+      switch(currentLine) {
+        case 0: tempTarget = max(0, tempTarget - increment_1); break;
+        case 1: openTarget = max(0, openTarget - increment_2); break;
+        case 2: frostTarget = max(0, frostTarget - increment_3); break;
+        case 3: windTarget = max(0, windTarget - increment_4); break;
+      }
+      updateDisplay();
+    }
+  } else {
+    decPressed = false;
   }
 }
 

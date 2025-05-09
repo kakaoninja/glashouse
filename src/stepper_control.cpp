@@ -1,4 +1,4 @@
-// StepperControl.cpp
+#include <Arduino.h>
 #include "stepper_control.h"
 
 StepperControl::StepperControl(int pin1, int pin2, int pin3, int pin4) {
