@@ -130,12 +130,22 @@ public:
     bool isSpeedCritical();
     bool isMotorBlocked();
     unsigned long getCooldownRemaining();
+    void setEnabled(bool enabled);
+    bool isEnabled();
+    unsigned long getTotalRotations();
 
 private:
     int _interruptPin;
     volatile unsigned long _rotationCount;
+    volatile unsigned long _totalRotationCount;
     volatile unsigned long _lastWindDetectionTime;
+    volatile unsigned long _lastInterruptTime;
+    volatile unsigned long _significantWindStartTime;
+    bool _enabled;
     static const unsigned long COOLDOWN_PERIOD = 600000; // 10 minutes in milliseconds
+    static const unsigned long DEBOUNCE_TIME = 50; // 50ms debounce to filter noise
+    static const unsigned long ROTATION_THRESHOLD = 5; // Need 5 rotations in 5 seconds to trigger
+    static const unsigned long ROTATION_WINDOW = 5000; // 5 second window
     static void windDetectedISR();
     static WindSensor* _instance;
     float calculateSpeed(unsigned long rotations);
@@ -348,7 +358,14 @@ void TemperatureSensor::update() {
 // ============================================
 // WIND SENSOR IMPLEMENTATION
 // ============================================
-WindSensor::WindSensor(int interruptPin) : _interruptPin(interruptPin), _rotationCount(0), _lastWindDetectionTime(0) {
+WindSensor::WindSensor(int interruptPin) :
+    _interruptPin(interruptPin),
+    _rotationCount(0),
+    _totalRotationCount(0),
+    _lastWindDetectionTime(0),
+    _lastInterruptTime(0),
+    _significantWindStartTime(0),
+    _enabled(true) {
     _instance = this;
 }
 
@@ -358,9 +375,35 @@ void WindSensor::begin() {
 }
 
 void WindSensor::windDetectedISR() {
-    if (_instance) {
+    if (_instance && _instance->_enabled) {
+        unsigned long currentTime = millis();
+
+        // Debounce: ignore interrupts that come too quickly (likely noise)
+        if (currentTime - _instance->_lastInterruptTime < DEBOUNCE_TIME) {
+            return;
+        }
+        _instance->_lastInterruptTime = currentTime;
+
+        // Count all rotations for statistics
+        _instance->_totalRotationCount++;
         _instance->_rotationCount++;
-        _instance->_lastWindDetectionTime = millis(); // Refresh cooldown timer on each detection
+
+        // Check if this is the start of a new wind event
+        if (_instance->_significantWindStartTime == 0 ||
+            currentTime - _instance->_significantWindStartTime > ROTATION_WINDOW) {
+            // Start new wind event window
+            _instance->_significantWindStartTime = currentTime;
+            _instance->_rotationCount = 1;
+        }
+
+        // Only trigger motor blocking if we have enough rotations in the time window
+        if (_instance->_rotationCount >= ROTATION_THRESHOLD &&
+            currentTime - _instance->_significantWindStartTime <= ROTATION_WINDOW) {
+            _instance->_lastWindDetectionTime = currentTime;
+            // Reset the window after triggering
+            _instance->_significantWindStartTime = 0;
+            _instance->_rotationCount = 0;
+        }
     }
 }
 
@@ -378,7 +421,20 @@ void WindSensor::resetCooldown() {
     noInterrupts();
     _lastWindDetectionTime = 0;
     _rotationCount = 0;
+    _significantWindStartTime = 0;
     interrupts();
+}
+
+void WindSensor::setEnabled(bool enabled) {
+    _enabled = enabled;
+}
+
+bool WindSensor::isEnabled() {
+    return _enabled;
+}
+
+unsigned long WindSensor::getTotalRotations() {
+    return _totalRotationCount;
 }
 
 bool WindSensor::isSpeedCritical() {
@@ -637,11 +693,15 @@ void printMotorDebugLog() {
   }
 
   // Wind sensor information
-  Serial.print("Wind Sensor Blocked: ");
+  Serial.print("Wind Sensor: ");
+  Serial.print(windSensor.isEnabled() ? "ENABLED" : "DISABLED");
+  Serial.print(" | Blocked: ");
   Serial.print(windSensor.isMotorBlocked() ? "YES" : "NO");
+  Serial.print(" | Total Rotations: ");
+  Serial.print(windSensor.getTotalRotations());
   if (windSensor.isMotorBlocked()) {
     unsigned long remainingMs = windSensor.getCooldownRemaining();
-    Serial.print(" | Remaining: ");
+    Serial.print(" | Cooldown: ");
     Serial.print(remainingMs / 1000);
     Serial.println("s");
   } else {
@@ -730,6 +790,7 @@ void setup() {
 
   windSensor.begin();
   Serial.println("- Wind sensor initialized");
+  Serial.println("  * Debounce: 50ms | Threshold: 5 rot/5sec");
 
   // Initialize button pins
   pinMode(CYCLE_PIN, INPUT_PULLUP);
@@ -775,13 +836,27 @@ void loop() {
       // Reset wind sensor cooldown
       windSensor.resetCooldown();
       Serial.println("Wind sensor cooldown RESET - Motor unblocked");
+    } else if (cmd == 'w' || cmd == 'W') {
+      // Toggle wind sensor enable/disable
+      windSensor.setEnabled(!windSensor.isEnabled());
+      Serial.print("Wind sensor ");
+      Serial.println(windSensor.isEnabled() ? "ENABLED" : "DISABLED");
+      if (!windSensor.isEnabled()) {
+        Serial.println("WARNING: Motor will operate regardless of wind!");
+        windSensor.resetCooldown();  // Clear any existing cooldown
+      }
     } else if (cmd == 'h' || cmd == 'H') {
       // Help message
       Serial.println("===== GLASHOUSE DEBUG COMMANDS =====");
       Serial.println("d/D - Toggle debug mode (1s motor status logs)");
       Serial.println("r/R - Reset wind sensor cooldown");
+      Serial.println("w/W - Toggle wind sensor enable/disable");
       Serial.println("h/H - Show this help message");
       Serial.println("====================================");
+      Serial.println("\nWind Sensor Settings:");
+      Serial.println("- Debounce: 50ms (filters electrical noise)");
+      Serial.println("- Threshold: 5 rotations in 5 seconds");
+      Serial.println("- Cooldown: 10 minutes after detection");
     }
   }
 
