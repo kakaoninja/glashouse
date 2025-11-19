@@ -127,12 +127,15 @@ public:
     float getSpeed();
     void resetCount();
     bool isSpeedCritical();
-    void emergencyStop();
+    bool isMotorBlocked();
+    unsigned long getCooldownRemaining();
 
 private:
     int _interruptPin;
     volatile unsigned long _rotationCount;
-    static void countRotation();
+    volatile unsigned long _lastWindDetectionTime;
+    static const unsigned long COOLDOWN_PERIOD = 600000; // 10 minutes in milliseconds
+    static void windDetectedISR();
     static WindSensor* _instance;
     float calculateSpeed(unsigned long rotations);
 };
@@ -166,7 +169,7 @@ TemperatureSensor tempSensorOutside(TEMP_SENSOR_OUTSIDE_PIN); // Outside glashou
 // ============================================
 // WIND SENSOR VARIABLES
 // ============================================
-const int WIND_SENSOR_PIN = 2;
+const int WIND_SENSOR_PIN = 21;  // Changed from pin 2 to avoid conflict with Stop button
 WindSensor windSensor(WIND_SENSOR_PIN);
 
 // ============================================
@@ -221,6 +224,21 @@ void StepperControl::oneRotation(bool forward) {
 }
 
 void StepperControl::moveSteps(int steps, bool forward) {
+  // Check if motor is blocked by wind cooldown
+  extern WindSensor windSensor;
+  if (windSensor.isMotorBlocked()) {
+    unsigned long remainingMs = windSensor.getCooldownRemaining();
+    unsigned long remainingMin = remainingMs / 60000;
+    unsigned long remainingSec = (remainingMs % 60000) / 1000;
+    Serial.print("! MOTOR BLOCKED - Wind cooldown active. Remaining: ");
+    Serial.print(remainingMin);
+    Serial.print("m ");
+    Serial.print(remainingSec);
+    Serial.println("s");
+    release();
+    return;
+  }
+
   int actualSteps = forward ? steps : -steps;
   int stepsMoved = 0;
 
@@ -228,6 +246,13 @@ void StepperControl::moveSteps(int steps, bool forward) {
   int stepIncrement = 10;  // Check every 10 steps
 
   while (stepsMoved < steps) {
+    // Check wind sensor during movement
+    if (windSensor.isMotorBlocked()) {
+      Serial.println("! MOTOR STOPPED - Wind detected during movement");
+      release();
+      return;
+    }
+
     // Check stop buttons
     if (Stop::isStopped_forward() && forward) {
       release();
@@ -310,15 +335,20 @@ void TemperatureSensor::update() {
 // ============================================
 // WIND SENSOR IMPLEMENTATION
 // ============================================
-WindSensor::WindSensor(int interruptPin) : _interruptPin(interruptPin), _rotationCount(0) {
+WindSensor::WindSensor(int interruptPin) : _interruptPin(interruptPin), _rotationCount(0), _lastWindDetectionTime(0) {
     _instance = this;
 }
 
 void WindSensor::begin() {
     pinMode(_interruptPin, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(_interruptPin), []() {
-        if (_instance) _instance->_rotationCount++;
-    }, FALLING);
+    attachInterrupt(digitalPinToInterrupt(_interruptPin), windDetectedISR, FALLING);
+}
+
+void WindSensor::windDetectedISR() {
+    if (_instance) {
+        _instance->_rotationCount++;
+        _instance->_lastWindDetectionTime = millis(); // Refresh cooldown timer on each detection
+    }
 }
 
 float WindSensor::getSpeed() {
@@ -335,8 +365,24 @@ bool WindSensor::isSpeedCritical() {
     return getSpeed() > 30.0; // 30 km/h threshold
 }
 
-void WindSensor::emergencyStop() {
-    Serial.println("! WIND ZU SCHNELL - ABSCHALTUNG !");
+bool WindSensor::isMotorBlocked() {
+    // Motor is blocked if we're within the cooldown period
+    if (_lastWindDetectionTime == 0) {
+        return false; // No wind detected yet
+    }
+    unsigned long timeSinceLastWind = millis() - _lastWindDetectionTime;
+    return timeSinceLastWind < COOLDOWN_PERIOD;
+}
+
+unsigned long WindSensor::getCooldownRemaining() {
+    if (_lastWindDetectionTime == 0) {
+        return 0; // No cooldown active
+    }
+    unsigned long timeSinceLastWind = millis() - _lastWindDetectionTime;
+    if (timeSinceLastWind >= COOLDOWN_PERIOD) {
+        return 0; // Cooldown expired
+    }
+    return COOLDOWN_PERIOD - timeSinceLastWind;
 }
 
 float WindSensor::calculateSpeed(unsigned long rotations) {
@@ -605,23 +651,33 @@ void loop() {
   // Control heating relays based on temperature conditions
   controlHeatingRelays();
 
-  // Wind sensor logic
-  float currentSpeed = windSensor.getSpeed();
-
-  if (windSensor.isSpeedCritical()) {
-    windSensor.emergencyStop();
-  }
-
+  // Wind sensor logic - reset rotation count every second to calculate current speed
   static unsigned long lastReset = 0;
   if (millis() - lastReset >= 1000) {
       windSensor.resetCount();
       lastReset = millis();
   }
 
+  // Display wind status if motor is blocked
+  static unsigned long lastWindWarning = 0;
+  if (windSensor.isMotorBlocked() && millis() - lastWindWarning >= 5000) {
+    unsigned long remainingMs = windSensor.getCooldownRemaining();
+    unsigned long remainingMin = remainingMs / 60000;
+    unsigned long remainingSec = (remainingMs % 60000) / 1000;
+    Serial.print("Wind cooldown active. Time remaining: ");
+    Serial.print(remainingMin);
+    Serial.print("m ");
+    Serial.print(remainingSec);
+    Serial.println("s");
+    lastWindWarning = millis();
+  }
+
   handleButtons(CYCLE_PIN, INCREASE_PIN, DECREASE_PIN,
                 TEMPERATURE_INCREMENT_VALUE, OPEN_INCREMENT_VALUE,
                 FROST_INCREMENT_VALUE, WIND_INCREMENT_VALUE);
 
+  // Only operate motor if temperature control requires it
+  // Motor blocking is handled inside moveSteps()
   if (tempCurrent > tempTarget){
     stepper->oneRotation(true);
   }
