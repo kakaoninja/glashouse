@@ -104,6 +104,115 @@ void Stop::stopISR2() {
 }
 
 // ============================================
+// TEMPERATURE SENSOR CLASS
+// ============================================
+class TemperatureSensor {
+  public:
+    float temperatureC;
+
+    TemperatureSensor(int pin);
+    void update();
+
+  private:
+    int _sensorPin;
+};
+
+// ============================================
+// WIND SENSOR CLASS
+// ============================================
+class WindSensor {
+public:
+    WindSensor(int interruptPin);
+    void begin();
+    float getSpeed();
+    void resetCount();
+    bool isSpeedCritical();
+    void emergencyStop();
+
+private:
+    int _interruptPin;
+    volatile unsigned long _rotationCount;
+    static void countRotation();
+    static WindSensor* _instance;
+    float calculateSpeed(unsigned long rotations);
+};
+
+WindSensor* WindSensor::_instance = nullptr;
+
+// ============================================
+// GLOBAL VARIABLES & CONSTANTS
+// ============================================
+
+// ============================================
+// TEMPERATURE CONTROL CONSTANTS
+// ============================================
+// Temperature sensor pins
+const int TEMP_SENSOR_INSIDE_PIN = A0;   // Analog pin for inside temperature sensor
+const int TEMP_SENSOR_OUTSIDE_PIN = A1;  // Analog pin for outside temperature sensor
+
+// Heating relay pins (active LOW - connected to ground when activated)
+const int HEATING_RELAY_1_PIN = 24;      // First heating relay control pin
+const int HEATING_RELAY_2_PIN = 26;      // Second heating relay control pin
+
+// Temperature thresholds
+const float FREEZING_POINT = 0.0;        // Freezing point in Celsius
+
+// ============================================
+// TEMPERATURE SENSOR INSTANCES
+// ============================================
+TemperatureSensor tempSensorInside(TEMP_SENSOR_INSIDE_PIN);   // Inside glashouse sensor
+TemperatureSensor tempSensorOutside(TEMP_SENSOR_OUTSIDE_PIN); // Outside glashouse sensor
+
+// ============================================
+// WIND SENSOR VARIABLES
+// ============================================
+const int WIND_SENSOR_PIN = 2;
+WindSensor windSensor(WIND_SENSOR_PIN);
+
+// ============================================
+// LCD CONFIGURATION & DISPLAY VARIABLES
+// ============================================
+#define LCD_COLS 20
+#define LCD_ROWS 4
+
+LiquidCrystal_I2C lcd(0x27, LCD_COLS, LCD_ROWS);
+
+int tempCurrent = 25;
+int tempTarget = 0;
+int openPercent = 0;
+int openTarget = 0;
+int frostCurrent = 0;
+int frostTarget = 0;
+int windCurrent = 0;
+int windTarget = 0;
+
+int currentLine = 0; // 0: Temp, 1: Open, 2: Frost, 3: Wind
+
+bool cyclePressed = false;
+bool incPressed = false;
+bool decPressed = false;
+
+// ============================================
+// BUTTON PIN DEFINITIONS
+// ============================================
+#define CYCLE_PIN 52
+#define INCREASE_PIN 50
+#define DECREASE_PIN 48
+
+// ============================================
+// INCREMENT VALUE DEFINITIONS
+// ============================================
+#define TEMPERATURE_INCREMENT_VALUE 1
+#define OPEN_INCREMENT_VALUE 5
+#define FROST_INCREMENT_VALUE 1
+#define WIND_INCREMENT_VALUE 10
+
+// ============================================
+// STEPPER CONTROL INSTANCE
+// ============================================
+StepperControl* stepper = new StepperControl();
+
+// ============================================
 // STEPPER CONTROL IMPLEMENTATION
 // ============================================
 void StepperControl::oneRotation(bool forward) {
@@ -184,19 +293,8 @@ void StepperControl::release() {
 }
 
 // ============================================
-// TEMPERATURE SENSOR CLASS
+// TEMPERATURE SENSOR IMPLEMENTATION
 // ============================================
-class TemperatureSensor {
-  public:
-    float temperatureC;
-
-    TemperatureSensor(int pin);
-    void update();
-
-  private:
-    int _sensorPin;
-};
-
 TemperatureSensor::TemperatureSensor(int pin) {
   _sensorPin = pin;
   pinMode(_sensorPin, INPUT);
@@ -210,27 +308,8 @@ void TemperatureSensor::update() {
 }
 
 // ============================================
-// WIND SENSOR CLASS
+// WIND SENSOR IMPLEMENTATION
 // ============================================
-class WindSensor {
-public:
-    WindSensor(int interruptPin);
-    void begin();
-    float getSpeed();
-    void resetCount();
-    bool isSpeedCritical();
-    void emergencyStop();
-
-private:
-    int _interruptPin;
-    volatile unsigned long _rotationCount;
-    static void countRotation();
-    static WindSensor* _instance;
-    float calculateSpeed(unsigned long rotations);
-};
-
-WindSensor* WindSensor::_instance = nullptr;
-
 WindSensor::WindSensor(int interruptPin) : _interruptPin(interruptPin), _rotationCount(0) {
     _instance = this;
 }
@@ -268,30 +347,7 @@ float WindSensor::calculateSpeed(unsigned long rotations) {
 }
 
 // ============================================
-// DISPLAY CONTROL - LCD & VARIABLES
-// ============================================
-#define LCD_COLS 20
-#define LCD_ROWS 4
-
-LiquidCrystal_I2C lcd(0x27, LCD_COLS, LCD_ROWS);
-
-int tempCurrent = 25;
-int tempTarget = 0;
-int openPercent = 0;
-int openTarget = 0;
-int frostCurrent = 0;
-int frostTarget = 0;
-int windCurrent = 0;
-int windTarget = 0;
-
-int currentLine = 0; // 0: Temp, 1: Open, 2: Frost, 3: Wind
-
-bool cyclePressed = false;
-bool incPressed = false;
-bool decPressed = false;
-
-// ============================================
-// DISPLAY CONTROL - FUNCTIONS
+// DISPLAY CONTROL FUNCTIONS
 // ============================================
 void scanI2CDevices() {
   byte error, address;
@@ -510,47 +566,6 @@ void controlHeatingRelays() {
     digitalWrite(HEATING_RELAY_2_PIN, HIGH);
   }
 }
-
-// ============================================
-// GLOBAL VARIABLES & SENSOR INSTANCES
-// ============================================
-
-// ============================================
-// TEMPERATURE CONTROL VARIABLES
-// ============================================
-// Temperature sensor pins
-const int TEMP_SENSOR_INSIDE_PIN = A0;   // Analog pin for inside temperature sensor
-const int TEMP_SENSOR_OUTSIDE_PIN = A1;  // Analog pin for outside temperature sensor
-
-// Heating relay pins (active LOW - connected to ground when activated)
-const int HEATING_RELAY_1_PIN = 24;      // First heating relay control pin
-const int HEATING_RELAY_2_PIN = 26;      // Second heating relay control pin
-
-// Temperature thresholds
-const float FREEZING_POINT = 0.0;        // Freezing point in Celsius
-
-// ============================================
-// WIND SENSOR VARIABLES
-// ============================================
-const int WIND_SENSOR_PIN = 2;
-WindSensor windSensor(WIND_SENSOR_PIN);
-
-// ============================================
-// TEMPERATURE SENSOR INSTANCES
-// ============================================
-TemperatureSensor tempSensorInside(TEMP_SENSOR_INSIDE_PIN);   // Inside glashouse sensor
-TemperatureSensor tempSensorOutside(TEMP_SENSOR_OUTSIDE_PIN); // Outside glashouse sensor
-
-#define CYCLE_PIN 52
-#define INCREASE_PIN 50
-#define DECREASE_PIN 48
-
-#define TEMPERATURE_INCREMENT_VALUE 1
-#define OPEN_INCREMENT_VALUE 5
-#define FROST_INCREMENT_VALUE 1
-#define WIND_INCREMENT_VALUE 10
-
-StepperControl* stepper = new StepperControl();
 
 // ============================================
 // SETUP FUNCTION
