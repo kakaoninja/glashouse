@@ -126,6 +126,7 @@ public:
     void begin();
     float getSpeed();
     void resetCount();
+    void resetCooldown();
     bool isSpeedCritical();
     bool isMotorBlocked();
     unsigned long getCooldownRemaining();
@@ -220,6 +221,12 @@ StepperControl* stepper = new StepperControl();
 // ============================================
 unsigned long lastMotorOpenTime = 0;
 unsigned long motorOpenCooldownTimer = 0;  // Dynamic cooldown in milliseconds
+
+// ============================================
+// DEBUG LOGGING VARIABLES
+// ============================================
+bool debugMode = false;  // Toggle with 'd' via Serial
+unsigned long lastDebugLog = 0;
 
 // ============================================
 // STEPPER CONTROL IMPLEMENTATION
@@ -363,6 +370,13 @@ float WindSensor::getSpeed() {
 
 void WindSensor::resetCount() {
     noInterrupts();
+    _rotationCount = 0;
+    interrupts();
+}
+
+void WindSensor::resetCooldown() {
+    noInterrupts();
+    _lastWindDetectionTime = 0;
     _rotationCount = 0;
     interrupts();
 }
@@ -579,6 +593,85 @@ void handleButtons(int cyclePin, int increasePin, int decreasePin,
 }
 
 // ============================================
+// DEBUG LOGGING FUNCTIONS
+// ============================================
+
+/**
+ * Print debug information about motor-relevant variables
+ * Called every 1 second when debug mode is enabled
+ */
+void printMotorDebugLog() {
+  Serial.println("========== MOTOR DEBUG LOG ==========");
+  Serial.print("Current Time: ");
+  Serial.print(millis() / 1000);
+  Serial.println("s");
+
+  // Temperature information
+  Serial.print("Temp Current: ");
+  Serial.print(tempCurrent);
+  Serial.print("C | Target: ");
+  Serial.print(tempTarget);
+  Serial.print("C | Difference: ");
+  Serial.println(tempCurrent - tempTarget);
+
+  // Motor cooldown information
+  unsigned long currentTime = millis();
+  Serial.print("Motor Cooldown Timer: ");
+  Serial.print(motorOpenCooldownTimer / 1000);
+  Serial.print("s | Last Open: ");
+  Serial.print(lastMotorOpenTime / 1000);
+  Serial.println("s ago");
+
+  if (motorOpenCooldownTimer > 0 && currentTime >= lastMotorOpenTime) {
+    unsigned long timeSinceOpen = currentTime - lastMotorOpenTime;
+    if (timeSinceOpen < motorOpenCooldownTimer) {
+      unsigned long remainingMs = motorOpenCooldownTimer - timeSinceOpen;
+      Serial.print("  -> Motor Cooldown Active: ");
+      Serial.print(remainingMs / 1000);
+      Serial.println("s remaining");
+    } else {
+      Serial.println("  -> Motor Cooldown EXPIRED - Ready to move");
+    }
+  } else {
+    Serial.println("  -> No motor cooldown active");
+  }
+
+  // Wind sensor information
+  Serial.print("Wind Sensor Blocked: ");
+  Serial.print(windSensor.isMotorBlocked() ? "YES" : "NO");
+  if (windSensor.isMotorBlocked()) {
+    unsigned long remainingMs = windSensor.getCooldownRemaining();
+    Serial.print(" | Remaining: ");
+    Serial.print(remainingMs / 1000);
+    Serial.println("s");
+  } else {
+    Serial.println();
+  }
+
+  // Stop button states
+  Serial.print("Stop Buttons - Forward: ");
+  Serial.print(Stop::isStopped_forward() ? "STOPPED" : "OK");
+  Serial.print(" | Backward: ");
+  Serial.println(Stop::isStopped_backward() ? "STOPPED" : "OK");
+
+  // Motor action decision
+  int tempDiff = tempCurrent - tempTarget;
+  Serial.print("Motor Action: ");
+  if (tempDiff <= 1) {
+    Serial.println("IDLE (temp diff <= 1)");
+  } else if (windSensor.isMotorBlocked()) {
+    Serial.println("BLOCKED (wind sensor)");
+  } else if (currentTime - lastMotorOpenTime < motorOpenCooldownTimer) {
+    Serial.println("WAITING (cooldown active)");
+  } else {
+    Serial.println("READY TO MOVE");
+  }
+
+  Serial.println("=====================================");
+  Serial.println();
+}
+
+// ============================================
 // TEMPERATURE CONTROL FUNCTIONS
 // ============================================
 
@@ -624,31 +717,74 @@ void controlHeatingRelays() {
 // ============================================
 void setup() {
   Serial.begin(9600);
+
+  // Print startup message
+  delay(1000);  // Wait for serial to initialize
+  Serial.println("\n\n========================================");
+  Serial.println("  GLASHOUSE CONTROL SYSTEM v2.0");
+  Serial.println("========================================");
+  Serial.println("Initializing...");
+
   Stop::initialize();
+  Serial.println("- Stop buttons initialized");
+
   windSensor.begin();
+  Serial.println("- Wind sensor initialized");
 
   // Initialize button pins
   pinMode(CYCLE_PIN, INPUT_PULLUP);
   pinMode(INCREASE_PIN, INPUT_PULLUP);
   pinMode(DECREASE_PIN, INPUT_PULLUP);
+  Serial.println("- Control buttons initialized");
 
   // Initialize heating relay pins as outputs (start with relays off - HIGH)
   pinMode(HEATING_RELAY_1_PIN, OUTPUT);
   pinMode(HEATING_RELAY_2_PIN, OUTPUT);
   digitalWrite(HEATING_RELAY_1_PIN, HIGH);  // Relays inactive at startup
   digitalWrite(HEATING_RELAY_2_PIN, HIGH);  // Relays inactive at startup
+  Serial.println("- Heating relays initialized");
 
   initializeDisplay();
+  Serial.println("- Display initialized");
+
   tempTarget = 20;
   frostTarget = 5;
   windTarget = 50;
   currentLine = 0;
+
+  Serial.println("\nSystem ready!");
+  Serial.println("Type 'h' for help with debug commands");
+  Serial.println("========================================\n");
 }
 
 // ============================================
 // LOOP FUNCTION
 // ============================================
 void loop() {
+  // Handle Serial commands for debug toggle
+  if (Serial.available() > 0) {
+    char cmd = Serial.read();
+    if (cmd == 'd' || cmd == 'D') {
+      debugMode = !debugMode;
+      Serial.print("Debug mode ");
+      Serial.println(debugMode ? "ENABLED" : "DISABLED");
+      if (debugMode) {
+        Serial.println("Motor debug logs will print every 1 second");
+      }
+    } else if (cmd == 'r' || cmd == 'R') {
+      // Reset wind sensor cooldown
+      windSensor.resetCooldown();
+      Serial.println("Wind sensor cooldown RESET - Motor unblocked");
+    } else if (cmd == 'h' || cmd == 'H') {
+      // Help message
+      Serial.println("===== GLASHOUSE DEBUG COMMANDS =====");
+      Serial.println("d/D - Toggle debug mode (1s motor status logs)");
+      Serial.println("r/R - Reset wind sensor cooldown");
+      Serial.println("h/H - Show this help message");
+      Serial.println("====================================");
+    }
+  }
+
   // Update temperature sensors
   tempSensorInside.update();
   tempSensorOutside.update();
@@ -676,6 +812,12 @@ void loop() {
     Serial.print(remainingSec);
     Serial.println("s");
     lastWindWarning = millis();
+  }
+
+  // Debug logging - print motor status every 1 second when enabled
+  if (debugMode && millis() - lastDebugLog >= 1000) {
+    printMotorDebugLog();
+    lastDebugLog = millis();
   }
 
   handleButtons(CYCLE_PIN, INCREASE_PIN, DECREASE_PIN,
