@@ -3,19 +3,25 @@
 #define STEPPER_CONTROL_H
 
 #include <Arduino.h>
+#include <Stepper.h>
 
 class StepperControl {
   public:
-    StepperControl(int pin1 = 53, int pin2 = 47, int pin3 = 51, int pin4 = 49);
+    StepperControl(int stepperAPlus = 53, int stepperAMinus = 51,
+                   int stepperBPlus = 49, int stepperBMinus = 47);
     void oneRotation(bool forward = true);
+    void moveSteps(int steps, bool forward = true);
+    void openWindow(int percentage);
+    void closeWindow(int percentage);
+    void setSpeed(int rpm);
     void release();
-    
+
   private:
-    int motorPins[4];
+    Stepper* stepper;
     const int stepsPerRevolution = 2048; // Typical for 28BYJ-48 with 1/64 reduction
-    unsigned long previousStepTime = 0;
-    const int stepDelay = 2; // ms between steps (controls speed)
-    void stepMotor(int step, bool forward);
+    int motorPins[4];
+    int currentPosition;  // Track current position for future use
+    int maxSteps;         // Maximum steps for full open/close
 };
 
 #endif
