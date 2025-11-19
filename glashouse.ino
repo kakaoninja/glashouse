@@ -216,6 +216,12 @@ bool decPressed = false;
 StepperControl* stepper = new StepperControl();
 
 // ============================================
+// MOTOR OPEN COOLDOWN VARIABLES
+// ============================================
+unsigned long lastMotorOpenTime = 0;
+unsigned long motorOpenCooldownTimer = 0;  // Dynamic cooldown in milliseconds
+
+// ============================================
 // STEPPER CONTROL IMPLEMENTATION
 // ============================================
 void StepperControl::oneRotation(bool forward) {
@@ -678,7 +684,57 @@ void loop() {
 
   // Only operate motor if temperature control requires it
   // Motor blocking is handled inside moveSteps()
-  if (tempCurrent > tempTarget){
-    stepper->oneRotation(true);
+
+  // Calculate temperature difference
+  int tempDifference = tempCurrent - tempTarget;
+
+  // Only move motor if temperature difference is greater than 1 degree
+  if (tempDifference > 1) {
+    // Calculate dynamic cooldown based on temperature difference
+    // Formula: 10 minutes / difference, using integer minutes only
+    // Minimum: 1 minute, Maximum: 10 minutes
+    // Examples: 10°diff=1min, 5°diff=2min, 3°diff=3min, 2°diff=5min
+    unsigned long calculatedCooldown;
+    if (tempDifference >= 10) {
+      calculatedCooldown = 60000;  // 1 minute for 10+ degrees
+    } else {
+      // Calculate: (600000ms / tempDifference) then round down to integer minutes
+      int cooldownMinutes = (600000 / tempDifference) / 60000;  // Integer division
+      calculatedCooldown = cooldownMinutes * 60000;
+
+      // Ensure bounds: minimum 1 minute, maximum 10 minutes
+      if (calculatedCooldown < 60000) calculatedCooldown = 60000;
+      if (calculatedCooldown > 600000) calculatedCooldown = 600000;
+    }
+
+    // Check if cooldown period has elapsed
+    unsigned long currentTime = millis();
+    if (currentTime - lastMotorOpenTime >= motorOpenCooldownTimer) {
+      // Perform 2 rotations to open the window
+      stepper->oneRotation(true);
+      stepper->oneRotation(true);
+
+      // Update cooldown tracking
+      lastMotorOpenTime = currentTime;
+      motorOpenCooldownTimer = calculatedCooldown;
+
+      Serial.print("Motor opened 2 rotations. Next open allowed in ");
+      Serial.print(motorOpenCooldownTimer / 60000);
+      Serial.println(" minutes.");
+    } else {
+      // Display cooldown status occasionally
+      static unsigned long lastCooldownMsg = 0;
+      if (currentTime - lastCooldownMsg >= 5000) {
+        unsigned long remainingMs = motorOpenCooldownTimer - (currentTime - lastMotorOpenTime);
+        unsigned long remainingMin = remainingMs / 60000;
+        unsigned long remainingSec = (remainingMs % 60000) / 1000;
+        Serial.print("Motor open cooldown active. Time remaining: ");
+        Serial.print(remainingMin);
+        Serial.print("m ");
+        Serial.print(remainingSec);
+        Serial.println("s");
+        lastCooldownMsg = currentTime;
+      }
+    }
   }
 }
