@@ -424,12 +424,75 @@ void handleButtons(int cyclePin, int increasePin, int decreasePin,
 }
 
 // ============================================
+// TEMPERATURE CONTROL FUNCTIONS
+// ============================================
+
+/**
+ * Check if inside temperature is below the target value set on display
+ * @return true if inside temperature is below target, false otherwise
+ */
+bool isInsideTempBelowTarget() {
+  return tempSensorInside.temperatureC < tempTarget;
+}
+
+/**
+ * Check if outside temperature is below freezing point (0°C)
+ * @return true if outside temperature is below 0°C, false otherwise
+ */
+bool isOutsideTempBelowFreezing() {
+  return tempSensorOutside.temperatureC < FREEZING_POINT;
+}
+
+/**
+ * Control heating relays based on temperature conditions
+ * Activates both heating relays when:
+ * - Outside temperature is below 0°C AND
+ * - Inside temperature is below the target value set on display
+ *
+ * Relays are active LOW (connected to ground when heating is needed)
+ */
+void controlHeatingRelays() {
+  // Check if both conditions are met for heating
+  if (isOutsideTempBelowFreezing() && isInsideTempBelowTarget()) {
+    // Activate both relays (connect to ground)
+    digitalWrite(HEATING_RELAY_1_PIN, LOW);
+    digitalWrite(HEATING_RELAY_2_PIN, LOW);
+  } else {
+    // Deactivate both relays (disconnect from ground)
+    digitalWrite(HEATING_RELAY_1_PIN, HIGH);
+    digitalWrite(HEATING_RELAY_2_PIN, HIGH);
+  }
+}
+
+// ============================================
 // GLOBAL VARIABLES & SENSOR INSTANCES
+// ============================================
+
+// ============================================
+// TEMPERATURE CONTROL VARIABLES
+// ============================================
+// Temperature sensor pins
+const int TEMP_SENSOR_INSIDE_PIN = A0;   // Analog pin for inside temperature sensor
+const int TEMP_SENSOR_OUTSIDE_PIN = A1;  // Analog pin for outside temperature sensor
+
+// Heating relay pins (active LOW - connected to ground when activated)
+const int HEATING_RELAY_1_PIN = 24;      // First heating relay control pin
+const int HEATING_RELAY_2_PIN = 26;      // Second heating relay control pin
+
+// Temperature thresholds
+const float FREEZING_POINT = 0.0;        // Freezing point in Celsius
+
+// ============================================
+// WIND SENSOR VARIABLES
 // ============================================
 const int WIND_SENSOR_PIN = 2;
 WindSensor windSensor(WIND_SENSOR_PIN);
 
-TemperatureSensor tempSensor(A0);
+// ============================================
+// TEMPERATURE SENSOR INSTANCES
+// ============================================
+TemperatureSensor tempSensorInside(TEMP_SENSOR_INSIDE_PIN);   // Inside glashouse sensor
+TemperatureSensor tempSensorOutside(TEMP_SENSOR_OUTSIDE_PIN); // Outside glashouse sensor
 
 #define CYCLE_PIN 52
 #define INCREASE_PIN 50
@@ -450,9 +513,16 @@ void setup() {
   Stop::initialize();
   windSensor.begin();
 
+  // Initialize button pins
   pinMode(CYCLE_PIN, INPUT_PULLUP);
   pinMode(INCREASE_PIN, INPUT_PULLUP);
   pinMode(DECREASE_PIN, INPUT_PULLUP);
+
+  // Initialize heating relay pins as outputs (start with relays off - HIGH)
+  pinMode(HEATING_RELAY_1_PIN, OUTPUT);
+  pinMode(HEATING_RELAY_2_PIN, OUTPUT);
+  digitalWrite(HEATING_RELAY_1_PIN, HIGH);  // Relays inactive at startup
+  digitalWrite(HEATING_RELAY_2_PIN, HIGH);  // Relays inactive at startup
 
   initializeDisplay();
   tempTarget = 20;
@@ -465,8 +535,13 @@ void setup() {
 // LOOP FUNCTION
 // ============================================
 void loop() {
-  tempSensor.update();
-  tempCurrent = tempSensor.temperatureC;
+  // Update temperature sensors
+  tempSensorInside.update();
+  tempSensorOutside.update();
+  tempCurrent = tempSensorInside.temperatureC;
+
+  // Control heating relays based on temperature conditions
+  controlHeatingRelays();
 
   // Wind sensor logic
   float currentSpeed = windSensor.getSpeed();
