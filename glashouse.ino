@@ -365,7 +365,7 @@ WindSensor::WindSensor(int interruptPin) :
     _lastWindDetectionTime(0),
     _lastInterruptTime(0),
     _significantWindStartTime(0),
-    _enabled(true) {
+    _enabled(false) {  // Start DISABLED by default for testing
     _instance = this;
 }
 
@@ -386,19 +386,20 @@ void WindSensor::windDetectedISR() {
 
         // Count all rotations for statistics
         _instance->_totalRotationCount++;
-        _instance->_rotationCount++;
 
-        // Check if this is the start of a new wind event
+        // Check if we need to start a new wind event window
         if (_instance->_significantWindStartTime == 0 ||
             currentTime - _instance->_significantWindStartTime > ROTATION_WINDOW) {
             // Start new wind event window
             _instance->_significantWindStartTime = currentTime;
             _instance->_rotationCount = 1;
+        } else {
+            // We're within the window, increment count
+            _instance->_rotationCount++;
         }
 
         // Only trigger motor blocking if we have enough rotations in the time window
-        if (_instance->_rotationCount >= ROTATION_THRESHOLD &&
-            currentTime - _instance->_significantWindStartTime <= ROTATION_WINDOW) {
+        if (_instance->_rotationCount >= ROTATION_THRESHOLD) {
             _instance->_lastWindDetectionTime = currentTime;
             // Reset the window after triggering
             _instance->_significantWindStartTime = 0;
@@ -789,8 +790,9 @@ void setup() {
   Serial.println("- Stop buttons initialized");
 
   windSensor.begin();
-  Serial.println("- Wind sensor initialized");
+  Serial.println("- Wind sensor initialized (DISABLED by default)");
   Serial.println("  * Debounce: 50ms | Threshold: 5 rot/5sec");
+  Serial.println("  * Press 'w' to enable wind protection");
 
   // Initialize button pins
   pinMode(CYCLE_PIN, INPUT_PULLUP);
@@ -844,6 +846,8 @@ void loop() {
       if (!windSensor.isEnabled()) {
         Serial.println("WARNING: Motor will operate regardless of wind!");
         windSensor.resetCooldown();  // Clear any existing cooldown
+      } else {
+        Serial.println("Motor will block after 5 rotations in 5 seconds");
       }
     } else if (cmd == 'h' || cmd == 'H') {
       // Help message
